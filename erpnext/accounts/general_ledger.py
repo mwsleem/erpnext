@@ -59,6 +59,7 @@ def make_gl_entries(
 						from_repost=from_repost,
 					)
 				save_entries(gl_map, adv_adj, update_outstanding, from_repost)
+				notify_ledger_change(gl_map)  # [ru-core]
 			# Post GL Map process there may no be any GL Entries
 			elif gl_map:
 				frappe.throw(
@@ -68,6 +69,20 @@ def make_gl_entries(
 				)
 		else:
 			make_reverse_gl_entries(gl_map, adv_adj=adv_adj, update_outstanding=update_outstanding)
+
+
+def notify_ledger_change(gl_entries):
+	"""[ru-core] Сообщить приложениям, что проводки документов изменились.
+
+	Вызывается после записи и после отмены проводок. Приложение подписывается
+	хуком `ledger_change` в hooks.py и получает множество пар
+	(voucher_type, voucher_no). ru_accounting строит по ним регистр проводок РСБУ.
+	"""
+	if not gl_entries:
+		return
+	vouchers = {(e.get("voucher_type"), e.get("voucher_no")) for e in gl_entries if e.get("voucher_no")}
+	for method in frappe.get_hooks("ledger_change"):
+		frappe.get_attr(method)(vouchers)
 
 
 def make_acc_dimensions_offsetting_entry(gl_map):
@@ -838,6 +853,8 @@ def make_reverse_gl_entries(
 
 			if any([debit, credit, debit_in_account_currency, credit_in_account_currency]):
 				make_entry(new_gle, adv_adj, "Yes", from_reversal=True)
+
+		notify_ledger_change(gl_entries)  # [ru-core]
 
 
 def check_freezing_date(posting_date, company, adv_adj=False):
